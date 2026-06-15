@@ -86,7 +86,7 @@ const PAGE_SIZE = 25;
 
 async function init() {
   try {
-    const res = await fetch('../data/trades.json');
+    const res = await fetch('https://raw.githubusercontent.com/sabyachalla/capitoltrades/main/data/trades.json');
     if (!res.ok) throw new Error('Data file not found. The scraper may not have run yet.');
     const json = await res.json();
     document.getElementById('updated').textContent = 'Last updated: ' + json.updated;
