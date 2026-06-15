@@ -2,8 +2,8 @@ name: Scrape Capitol Trades
 
 on:
   schedule:
-    - cron: '0 6 * * *'  # runs every day at 6am UTC
-  workflow_dispatch:  # lets you run it manually too
+    - cron: '0 6 * * *'
+  workflow_dispatch:
 
 jobs:
   scrape:
@@ -21,9 +21,11 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: pip install requests
 
       - name: Run scraper
+        env:
+          FMP_API_KEY: ${{ secrets.FMP_API_KEY }}
         run: python scraper/scrape.py
 
       - name: Commit updated data
