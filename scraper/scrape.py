@@ -4,49 +4,62 @@ import os
 from datetime import datetime
 from collections import defaultdict
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-}
+API_KEY = os.environ.get("FMP_API_KEY", "")
 
 def fetch_trades():
-    print("Fetching Senate trades...")
     trades = []
 
-    # Pull directly from senatestockwatcher.com API
-    url = "https://senatestockwatcher.com/api/transactions/all.json"
+    # Senate trades
+    print("Fetching Senate trades...")
+    url = f"https://financialmodelingprep.com/api/v4/senate-trading?apikey={API_KEY}"
     try:
-        r = requests.get(url, headers=HEADERS, timeout=30)
-        print(f"Status code: {r.status_code}")
-        r.raise_for_status()
+        r = requests.get(url, timeout=30)
+        print(f"Senate status: {r.status_code}")
         data = r.json()
-        print(f"Raw records fetched: {len(data)}")
-
+        print(f"Senate records: {len(data)}")
         for tx in data:
-            name = tx.get("senator", "").strip()
-            asset = tx.get("asset_description", "").strip()
-            ticker = tx.get("ticker", "").strip()
             tx_type = tx.get("type", "").lower()
-
-            if not asset or asset == "--":
-                continue
-            if "purchase" in tx_type:
+            if "purchase" in tx_type or "buy" in tx_type:
                 tx_type = "buy"
             elif "sale" in tx_type or "sell" in tx_type:
                 tx_type = "sell"
             else:
                 tx_type = "other"
-
             trades.append({
-                "politician": name,
-                "issuer": asset,
-                "ticker": ticker if ticker != "--" else "",
+                "politician": tx.get("senator", ""),
+                "issuer": tx.get("assetDescription", ""),
+                "ticker": tx.get("ticker", ""),
                 "type": tx_type
             })
-
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Senate error: {e}")
 
-    print(f"Got {len(trades)} trades")
+    # House trades
+    print("Fetching House trades...")
+    url = f"https://financialmodelingprep.com/api/v4/senate-disclosure?apikey={API_KEY}"
+    try:
+        r = requests.get(url, timeout=30)
+        print(f"House status: {r.status_code}")
+        data = r.json()
+        print(f"House records: {len(data)}")
+        for tx in data:
+            tx_type = tx.get("type", "").lower()
+            if "purchase" in tx_type or "buy" in tx_type:
+                tx_type = "buy"
+            elif "sale" in tx_type or "sell" in tx_type:
+                tx_type = "sell"
+            else:
+                tx_type = "other"
+            trades.append({
+                "politician": tx.get("representative", ""),
+                "issuer": tx.get("assetDescription", ""),
+                "ticker": tx.get("ticker", ""),
+                "type": tx_type
+            })
+    except Exception as e:
+        print(f"House error: {e}")
+
+    print(f"Total trades: {len(trades)}")
     return trades
 
 def process(trades):
