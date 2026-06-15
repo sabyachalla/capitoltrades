@@ -1,73 +1,58 @@
 import requests
-from bs4 import BeautifulSoup
 import json
-import time
 import os
 from datetime import datetime
+from collections import defaultdict
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-}
+SENATE_URL = "https://raw.githubusercontent.com/timothycarambat/senate-stock-watcher-data/master/aggregate/all_transactions.json"
 
-def scrape_page(page_num):
-    url = f"https://www.capitoltrades.com/trades?pageSize=96&page={page_num}"
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=15)
-        r.raise_for_status()
-        soup = BeautifulSoup(r.text, "html.parser")
-        rows = soup.select("table tbody tr")
-        trades = []
-        for row in rows:
-            cols = row.select("td")
-            if len(cols) < 7:
+def fetch_senate_trades():
+    print("Fetching Senate trades...")
+    r = requests.get(SENATE_URL, timeout=30)
+    r.raise_for_status()
+    data = r.json()
+    trades = []
+    for senator in data:
+        name = f"{senator.get('first_name', '')} {senator.get('last_name', '')}".strip()
+        for tx in senator.get("transactions", []):
+            asset = tx.get("asset_description", "").strip()
+            ticker = tx.get("ticker", "").strip()
+            tx_type = tx.get("type", "").lower()
+            if not asset or asset == "--":
                 continue
-            politician = cols[0].get_text(strip=True)
-            issuer_el = cols[1].select_one("h3, .issuer-name, a")
-            issuer = issuer_el.get_text(strip=True) if issuer_el else cols[1].get_text(strip=True)
-            ticker_el = cols[1].select_one(".issuer-ticker, span")
-            ticker = ticker_el.get_text(strip=True) if ticker_el else ""
-            tx_type = cols[5].get_text(strip=True).lower()
-            if "buy" in tx_type:
+            if "purchase" in tx_type:
                 tx_type = "buy"
-            elif "sell" in tx_type:
+            elif "sale" in tx_type or "sell" in tx_type:
                 tx_type = "sell"
             else:
                 tx_type = "other"
             trades.append({
-                "politician": politician,
-                "issuer": issuer,
-                "ticker": ticker,
+                "politician": name,
+                "chamber": "Senate",
+                "issuer": asset,
+                "ticker": ticker if ticker != "--" else "",
                 "type": tx_type
             })
-        return trades
-    except Exception as e:
-        print(f"Error on page {page_num}: {e}")
-        return []
+    print(f"Got {len(trades)} Senate trades")
+    return trades
 
-def main():
-    all_trades = []
-    for page in range(1, 11):
-        print(f"Scraping page {page}...")
-        trades = scrape_page(page)
-        if not trades:
-            break
-        all_trades.extend(trades)
-        time.sleep(2)
+def process(trades):
+    issuer_map = defaultdict(lambda: {
+        "name": "",
+        "ticker": "",
+        "politicians": set(),
+        "trades": 0,
+        "buys": 0,
+        "sells": 0
+    })
 
-    issuer_map = {}
-    for t in all_trades:
+    for t in trades:
         key = t["issuer"].upper().strip()
         if not key:
             continue
-        if key not in issuer_map:
-            issuer_map[key] = {
-                "name": t["issuer"],
-                "ticker": t["ticker"],
-                "politicians": set(),
-                "trades": 0,
-                "buys": 0,
-                "sells": 0
-            }
+        issuer_map[key]["name"] = t["issuer"]
+        if t["ticker"]:
+            issuer_map[key]["ticker"] = t["ticker"]
         issuer_map[key]["politicians"].add(t["politician"])
         issuer_map[key]["trades"] += 1
         if t["type"] == "buy":
@@ -76,6 +61,7 @@ def main():
             issuer_map[key]["sells"] += 1
 
     ranked = sorted(issuer_map.values(), key=lambda x: len(x["politicians"]), reverse=True)
+
     output = []
     for item in ranked:
         output.append({
@@ -87,16 +73,22 @@ def main():
             "buys": item["buys"],
             "sells": item["sells"]
         })
+    return output
+
+def main():
+    trades = fetch_senate_trades()
+
+    output = process(trades)
 
     os.makedirs("data", exist_ok=True)
     with open("data/trades.json", "w") as f:
         json.dump({
             "updated": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
-            "total_trades": len(all_trades),
+            "total_trades": len(trades),
             "issuers": output
         }, f, indent=2)
 
-    print(f"Done! {len(all_trades)} trades, {len(output)} companies.")
+    print(f"Done! {len(trades)} trades → {len(output)} companies saved.")
 
 if __name__ == "__main__":
     main()
