@@ -1,116 +1,166 @@
 import requests
 import json
 import os
+import zipfile
+import io
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from collections import defaultdict
 
-API_KEY = os.environ.get("FMP_API_KEY", "")
-
-def fetch_trades():
+def fetch_house_trades():
+    print("Fetching House disclosure index...")
     trades = []
+    
+    for year in [2026, 2025]:
+        url = f"https://disclosures-clerk.house.gov/public_disc/financial-pdfs/{year}FD.zip"
+        print(f"Downloading {year} ZIP...")
+        try:
+            r = requests.get(url, timeout=60)
+            print(f"Status: {r.status_code}, Size: {len(r.content)} bytes")
+            if r.status_code != 200:
+                continue
 
-    # Senate trades
+            z = zipfile.ZipFile(io.BytesIO(r.content))
+            xml_files = [f for f in z.namelist() if f.endswith('.xml')]
+            print(f"XML files in ZIP: {xml_files}")
+
+            for xml_file in xml_files:
+                tree = ET.parse(z.open(xml_file))
+                root = tree.getroot()
+                
+                for member in root.findall('.//Member'):
+                    prefix = member.findtext('Prefix', '')
+                    first = member.findtext('First', '')
+                    last = member.findtext('Last', '')
+                    filing_type = member.findtext('FilingType', '')
+                    state = member.findtext('StateDst', '')
+                    
+                    name = f"{prefix} {first} {last}".strip()
+                    
+                    # P = Periodic Transaction Report (stock trades)
+                    if 'P' in filing_type:
+                        trades.append({
+                            "politician": name,
+                            "issuer": f"[House PTR - {state}]",
+                            "ticker": "",
+                            "type": "other",
+                            "year": year
+                        })
+
+        except Exception as e:
+            print(f"Error for {year}: {e}")
+
+    print(f"Got {len(trades)} House PTR filings")
+    return trades
+
+def fetch_senate_trades():
+    """Pull from the Senate EFD search - returns filing list"""
     print("Fetching Senate trades...")
-    url = f"https://financialmodelingprep.com/api/v4/senate-trading?apikey={API_KEY}"
+    trades = []
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": "https://efdsearch.senate.gov/search/home/"
+    }
+    
+    session = requests.Session()
+    
+    # Step 1: accept agreement
     try:
-        r = requests.get(url, timeout=30)
+        session.get("https://efdsearch.senate.gov/search/home/", timeout=15)
+        session.post(
+            "https://efdsearch.senate.gov/search/home/",
+            data={"prohibition_agreement": "1"},
+            headers=headers,
+            timeout=15
+        )
+    except Exception as e:
+        print(f"Senate session error: {e}")
+        return trades
+
+    # Step 2: search for PTRs
+    try:
+        payload = {
+            "draw": "1",
+            "start": "0", 
+            "length": "100",
+            "report_types": "[11]",
+            "submitted_start_date": "01/01/2025 00:00:00",
+            "submitted_end_date": "",
+            "candidate_state": "",
+            "senator_state": "",
+            "office_id": "",
+            "first_name": "",
+            "last_name": "",
+            "action": "search",
+            "filer_type": "1"
+        }
+        
+        r = session.post(
+            "https://efdsearch.senate.gov/search/report/data/",
+            data=payload,
+            headers=headers,
+            timeout=20
+        )
         print(f"Senate status: {r.status_code}")
-        data = r.json()
-        print(f"Senate records: {len(data)}")
-        for tx in data:
-            tx_type = tx.get("type", "").lower()
-            if "purchase" in tx_type or "buy" in tx_type:
-                tx_type = "buy"
-            elif "sale" in tx_type or "sell" in tx_type:
-                tx_type = "sell"
-            else:
-                tx_type = "other"
-            trades.append({
-                "politician": tx.get("senator", ""),
-                "issuer": tx.get("assetDescription", ""),
-                "ticker": tx.get("ticker", ""),
-                "type": tx_type
-            })
+        
+        if r.status_code == 200:
+            data = r.json()
+            records = data.get("data", [])
+            print(f"Senate records: {len(records)}")
+            for rec in records:
+                if len(rec) >= 2:
+                    name = f"{rec[0]} {rec[1]}".strip()
+                    trades.append({
+                        "politician": name,
+                        "issuer": "Senate PTR Filing",
+                        "ticker": "",
+                        "type": "other"
+                    })
     except Exception as e:
-        print(f"Senate error: {e}")
+        print(f"Senate search error: {e}")
 
-    # House trades
-    print("Fetching House trades...")
-    url = f"https://financialmodelingprep.com/api/v4/senate-disclosure?apikey={API_KEY}"
-    try:
-        r = requests.get(url, timeout=30)
-        print(f"House status: {r.status_code}")
-        data = r.json()
-        print(f"House records: {len(data)}")
-        for tx in data:
-            tx_type = tx.get("type", "").lower()
-            if "purchase" in tx_type or "buy" in tx_type:
-                tx_type = "buy"
-            elif "sale" in tx_type or "sell" in tx_type:
-                tx_type = "sell"
-            else:
-                tx_type = "other"
-            trades.append({
-                "politician": tx.get("representative", ""),
-                "issuer": tx.get("assetDescription", ""),
-                "ticker": tx.get("ticker", ""),
-                "type": tx_type
-            })
-    except Exception as e:
-        print(f"House error: {e}")
-
-    print(f"Total trades: {len(trades)}")
     return trades
 
 def process(trades):
-    issuer_map = defaultdict(lambda: {
-        "name": "",
-        "ticker": "",
-        "politicians": set(),
-        "trades": 0,
-        "buys": 0,
-        "sells": 0
-    })
-
+    # For now count PTR filings per politician
+    pol_map = defaultdict(int)
     for t in trades:
-        key = t["issuer"].upper().strip()
-        if not key or key == "--":
-            continue
-        issuer_map[key]["name"] = t["issuer"]
-        if t.get("ticker"):
-            issuer_map[key]["ticker"] = t["ticker"]
-        issuer_map[key]["politicians"].add(t["politician"])
-        issuer_map[key]["trades"] += 1
-        if t["type"] == "buy":
-            issuer_map[key]["buys"] += 1
-        elif t["type"] == "sell":
-            issuer_map[key]["sells"] += 1
+        pol_map[t["politician"]] += 1
 
-    ranked = sorted(issuer_map.values(), key=lambda x: len(x["politicians"]), reverse=True)
-
-    return [{
-        "name": item["name"],
-        "ticker": item["ticker"],
-        "politician_count": len(item["politicians"]),
-        "politicians": list(item["politicians"]),
-        "trades": item["trades"],
-        "buys": item["buys"],
-        "sells": item["sells"]
-    } for item in ranked]
+    # Return as issuer-style output showing most active traders
+    output = []
+    for pol, count in sorted(pol_map.items(), key=lambda x: x[1], reverse=True):
+        output.append({
+            "name": pol,
+            "ticker": "",
+            "politician_count": 1,
+            "politicians": [pol],
+            "trades": count,
+            "buys": 0,
+            "sells": 0
+        })
+    
+    return output
 
 def main():
-    trades = fetch_trades()
-    output = process(trades)
+    house = fetch_house_trades()
+    senate = fetch_senate_trades()
+    all_trades = house + senate
+
+    output = process(all_trades)
 
     os.makedirs("data", exist_ok=True)
     with open("data/trades.json", "w") as f:
         json.dump({
             "updated": datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
-            "total_trades": len(trades),
+            "total_trades": len(all_trades),
             "issuers": output
         }, f, indent=2)
 
-    print(f"Done! {len(trades)} trades → {len(output)} companies saved.")
+    print(f"Done! {len(all_trades)} filings → {len(output)} politicians saved.")
 
 if __name__ == "__main__":
     main()
