@@ -1,5 +1,189 @@
 <!DOCTYPE html>
-<html>
-<head><title>Capitol Trades Tracker</title></head>
-<body><h1>Coming soon</h1></body>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Capitol Trades Tracker</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #e6edf3; min-height: 100vh; }
+    header { background: #161b22; border-bottom: 1px solid #30363d; padding: 1.25rem 2rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; }
+    header h1 { font-size: 1.3rem; font-weight: 600; color: #f0f6fc; }
+    header h1 span { color: #3fb950; }
+    .updated { font-size: 12px; color: #8b949e; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 2rem; }
+    .stat { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1rem 1.25rem; }
+    .stat-label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+    .stat-val { font-size: 1.6rem; font-weight: 600; color: #f0f6fc; }
+    .controls { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 1.5rem; align-items: center; }
+    input[type=text] { background: #161b22; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; padding: 8px 12px; font-size: 14px; width: 220px; outline: none; }
+    input[type=text]:focus { border-color: #3fb950; }
+    select { background: #161b22; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; padding: 8px 12px; font-size: 14px; outline: none; cursor: pointer; }
+    select:focus { border-color: #3fb950; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    thead tr { background: #161b22; border-bottom: 1px solid #30363d; }
+    th { padding: 10px 14px; text-align: left; font-size: 12px; font-weight: 500; color: #8b949e; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; white-space: nowrap; user-select: none; }
+    th:hover { color: #e6edf3; }
+    tbody tr { border-bottom: 1px solid #21262d; transition: background 0.1s; }
+    tbody tr:hover { background: #161b22; }
+    td { padding: 12px 14px; vertical-align: middle; }
+    .rank { font-size: 13px; color: #8b949e; font-weight: 500; width: 36px; }
+    .rank.top3 { color: #3fb950; font-weight: 700; }
+    .company-name { font-weight: 500; color: #f0f6fc; }
+    .ticker { font-size: 11px; color: #8b949e; margin-top: 2px; }
+    .bar-wrap { display: flex; align-items: center; gap: 10px; }
+    .bar { height: 6px; background: #3fb950; border-radius: 3px; min-width: 2px; }
+    .pol-count { font-size: 14px; font-weight: 600; color: #f0f6fc; min-width: 24px; }
+    .badge { display: inline-block; font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 4px; }
+    .badge-buy { background: #0d2818; color: #3fb950; border: 1px solid #1a4d2e; }
+    .badge-sell { background: #2d1212; color: #f85149; border: 1px solid #5c1f1f; }
+    .badge-both { background: #2d2000; color: #d29922; border: 1px solid #5c4000; }
+    .politicians-list { font-size: 12px; color: #8b949e; max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pagination { display: flex; align-items: center; justify-content: space-between; margin-top: 1.5rem; flex-wrap: wrap; gap: 10px; }
+    .pagination span { font-size: 13px; color: #8b949e; }
+    .pg-btn { background: #161b22; border: 1px solid #30363d; color: #e6edf3; padding: 6px 14px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+    .pg-btn:hover:not(:disabled) { border-color: #3fb950; color: #3fb950; }
+    .pg-btn:disabled { opacity: 0.3; cursor: default; }
+    .loading { text-align: center; padding: 4rem; color: #8b949e; font-size: 15px; }
+    .error { background: #2d1212; border: 1px solid #5c1f1f; border-radius: 8px; padding: 1.5rem; color: #f85149; margin: 2rem 0; }
+    .table-wrap { background: #161b22; border: 1px solid #30363d; border-radius: 10px; overflow: hidden; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Capitol <span>Trades</span> Tracker</h1>
+  <div class="updated" id="updated">Loading...</div>
+</header>
+
+<div class="container">
+  <div class="stats">
+    <div class="stat"><div class="stat-label">Companies tracked</div><div class="stat-val" id="s-companies">—</div></div>
+    <div class="stat"><div class="stat-label">Total trades</div><div class="stat-val" id="s-trades">—</div></div>
+    <div class="stat"><div class="stat-label">Data source</div><div class="stat-val" style="font-size:1rem;margin-top:4px"><a href="https://www.capitoltrades.com" target="_blank" style="color:#3fb950;text-decoration:none">capitoltrades.com</a></div></div>
+  </div>
+
+  <div class="controls">
+    <input type="text" id="search" placeholder="Search company or ticker…" oninput="applyFilters()" />
+    <select id="type-filter" onchange="applyFilters()">
+      <option value="all">All activity</option>
+      <option value="buy">Buys only</option>
+      <option value="sell">Sells only</option>
+    </select>
+  </div>
+
+  <div id="main-content" class="loading">Loading trade data…</div>
+</div>
+
+<script>
+let allData = [];
+let filtered = [];
+let sortKey = 'politician_count';
+let sortDir = -1;
+let page = 0;
+const PAGE_SIZE = 25;
+
+async function init() {
+  try {
+    const res = await fetch('../data/trades.json');
+    if (!res.ok) throw new Error('Data file not found. The scraper may not have run yet.');
+    const json = await res.json();
+    document.getElementById('updated').textContent = 'Last updated: ' + json.updated;
+    document.getElementById('s-trades').textContent = json.total_trades.toLocaleString();
+    allData = json.issuers;
+    applyFilters();
+  } catch(e) {
+    document.getElementById('main-content').innerHTML = `<div class="error"><strong>Error:</strong> ${e.message}</div>`;
+  }
+}
+
+function applyFilters() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const type = document.getElementById('type-filter').value;
+  filtered = allData.filter(d => {
+    const matchQ = !q || d.name.toLowerCase().includes(q) || (d.ticker && d.ticker.toLowerCase().includes(q));
+    const matchType = type === 'all' ||
+      (type === 'buy' && d.buys > 0) ||
+      (type === 'sell' && d.sells > 0);
+    return matchQ && matchType;
+  });
+  document.getElementById('s-companies').textContent = filtered.length.toLocaleString();
+  sortData();
+  page = 0;
+  render();
+}
+
+function sortBy(key) {
+  if (sortKey === key) sortDir *= -1;
+  else { sortKey = key; sortDir = -1; }
+  sortData();
+  render();
+}
+
+function sortData() {
+  filtered.sort((a, b) => {
+    if (sortKey === 'name') return sortDir * a.name.localeCompare(b.name);
+    return sortDir * ((a[sortKey] || 0) - (b[sortKey] || 0));
+  });
+}
+
+function changePage(dir) {
+  const max = Math.ceil(filtered.length / PAGE_SIZE) - 1;
+  page = Math.max(0, Math.min(max, page + dir));
+  render();
+}
+
+function render() {
+  const maxPols = Math.max(...filtered.map(d => d.politician_count), 1);
+  const start = page * PAGE_SIZE;
+  const slice = filtered.slice(start, start + PAGE_SIZE);
+
+  let badge = '';
+  let html = `<div class="table-wrap"><table>
+    <thead><tr>
+      <th>#</th>
+      <th onclick="sortBy('name')">Company</th>
+      <th onclick="sortBy('politician_count')">Politicians ↕</th>
+      <th onclick="sortBy('trades')">Trades ↕</th>
+      <th>Activity</th>
+      <th>Who</th>
+    </tr></thead><tbody>`;
+
+  slice.forEach((d, i) => {
+    const rank = start + i + 1;
+    const rankClass = rank <= 3 ? 'rank top3' : 'rank';
+    const barW = Math.round((d.politician_count / maxPols) * 120);
+    if (d.buys > 0 && d.sells > 0) badge = `<span class="badge badge-both">buy + sell</span>`;
+    else if (d.buys > 0) badge = `<span class="badge badge-buy">buy</span>`;
+    else badge = `<span class="badge badge-sell">sell</span>`;
+    const pols = d.politicians.slice(0, 3).join(', ') + (d.politicians.length > 3 ? ` +${d.politicians.length - 3} more` : '');
+    html += `<tr>
+      <td><span class="${rankClass}">${rank}</span></td>
+      <td><div class="company-name">${d.name}</div>${d.ticker ? `<div class="ticker">${d.ticker}</div>` : ''}</td>
+      <td><div class="bar-wrap"><span class="pol-count">${d.politician_count}</span><div class="bar" style="width:${barW}px"></div></div></td>
+      <td>${d.trades}</td>
+      <td>${badge}</td>
+      <td><div class="politicians-list" title="${d.politicians.join(', ')}">${pols}</div></td>
+    </tr>`;
+  });
+
+  html += `</tbody></table></div>`;
+
+  const total = filtered.length;
+  const maxPage = Math.ceil(total / PAGE_SIZE);
+  html += `<div class="pagination">
+    <span>Showing ${start+1}–${Math.min(start+PAGE_SIZE, total)} of ${total} companies</span>
+    <div style="display:flex;gap:8px">
+      <button class="pg-btn" onclick="changePage(-1)" ${page===0?'disabled':''}>← Prev</button>
+      <button class="pg-btn" onclick="changePage(1)" ${page>=maxPage-1?'disabled':''}>Next →</button>
+    </div>
+  </div>`;
+
+  document.getElementById('main-content').innerHTML = html;
+}
+
+init();
+</script>
+</body>
 </html>
