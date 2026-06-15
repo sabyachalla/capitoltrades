@@ -6,6 +6,14 @@ import io
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from collections import defaultdict
+import time
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Referer": "https://disclosures-clerk.house.gov/"
+}
 
 def fetch_house_trades():
     print("Fetching House trades...")
@@ -15,33 +23,36 @@ def fetch_house_trades():
         url = f"https://disclosures-clerk.house.gov/public_disc/financial-pdfs/{year}FD.zip"
         print(f"Downloading {year} ZIP...")
         try:
-            r = requests.get(url, timeout=60)
+            r = requests.get(url, headers=HEADERS, timeout=60)
+            print(f"ZIP status: {r.status_code}")
             if r.status_code != 200:
-                print(f"Failed: {r.status_code}")
                 continue
 
             z = zipfile.ZipFile(io.BytesIO(r.content))
             xml_files = [f for f in z.namelist() if f.endswith('.xml')]
+            print(f"Found XML: {xml_files}")
 
             for xml_file in xml_files:
                 tree = ET.parse(z.open(xml_file))
                 root = tree.getroot()
+                members = root.findall('.//Member')
+                print(f"Members in {year}: {len(members)}")
 
-                for member in root.findall('.//Member'):
+                count = 0
+                for member in members:
                     first = member.findtext('First', '').strip()
                     last = member.findtext('Last', '').strip()
                     filing_type = member.findtext('FilingType', '').strip()
                     doc_id = member.findtext('DocID', '').strip()
                     name = f"{first} {last}".strip()
 
-                    # Only PTR filings (P = periodic transaction report)
                     if filing_type != 'P' or not doc_id:
                         continue
 
-                    # Fetch the individual XML for this PTR
                     ptr_url = f"https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/{year}/{doc_id}.xml"
                     try:
-                        ptr_r = requests.get(ptr_url, timeout=10)
+                        time.sleep(0.5)
+                        ptr_r = requests.get(ptr_url, headers=HEADERS, timeout=15)
                         if ptr_r.status_code != 200:
                             continue
 
@@ -67,6 +78,13 @@ def fetch_house_trades():
                                 'ticker': ticker,
                                 'type': tx_type
                             })
+                        count += 1
+                        if count % 10 == 0:
+                            print(f"  Processed {count} PTRs, {len(trades)} trades so far...")
+
+                        # cap at 200 PTRs per year to stay within time limits
+                        if count >= 200:
+                            break
 
                     except Exception as e:
                         continue
@@ -74,7 +92,7 @@ def fetch_house_trades():
         except Exception as e:
             print(f"Error for {year}: {e}")
 
-    print(f"Got {len(trades)} trades")
+    print(f"Got {len(trades)} trades total")
     return trades
 
 def process(trades):
@@ -88,9 +106,6 @@ def process(trades):
     })
 
     for t in trades:
-        # Only count buys for ranking
-        if t['type'] != 'buy':
-            continue
         key = t['issuer'].upper().strip()
         if not key or key == '--':
             continue
@@ -99,8 +114,12 @@ def process(trades):
             issuer_map[key]['ticker'] = t['ticker']
         issuer_map[key]['politicians'].add(t['politician'])
         issuer_map[key]['trades'] += 1
-        issuer_map[key]['buys'] += 1
+        if t['type'] == 'buy':
+            issuer_map[key]['buys'] += 1
+        elif t['type'] == 'sell':
+            issuer_map[key]['sells'] += 1
 
+    # rank by number of politicians who BOUGHT
     ranked = sorted(issuer_map.values(), key=lambda x: len(x['politicians']), reverse=True)
 
     return [{
