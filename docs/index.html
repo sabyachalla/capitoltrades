@@ -12,6 +12,8 @@
     header h1 span { color: #3fb950; }
     .updated { font-size: 12px; color: #8b949e; }
     .container { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
+    .description { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; font-size: 14px; color: #8b949e; line-height: 1.7; }
+    .description strong { color: #e6edf3; }
     .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 2rem; }
     .stat { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1rem 1.25rem; }
     .stat-label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
@@ -58,14 +60,19 @@
 </header>
 
 <div class="container">
+
+  <div class="description">
+    <strong>How it works:</strong> Under the STOCK Act, every member of Congress must publicly disclose stock trades within 45 days. This site pulls those filings directly from the official House of Representatives disclosure portal — no middlemen — and ranks companies by how many politicians have active stakes in them. Data refreshes automatically every 24 hours.
+  </div>
+
   <div class="stats">
-    <div class="stat"><div class="stat-label">Companies tracked</div><div class="stat-val" id="s-companies">—</div></div>
-    <div class="stat"><div class="stat-label">Total trades</div><div class="stat-val" id="s-trades">—</div></div>
-    <div class="stat"><div class="stat-label">Data source</div><div class="stat-val" style="font-size:1rem;margin-top:4px"><a href="https://www.capitoltrades.com" target="_blank" style="color:#3fb950;text-decoration:none">capitoltrades.com</a></div></div>
+    <div class="stat"><div class="stat-label">Politicians tracked</div><div class="stat-val" id="s-companies">—</div></div>
+    <div class="stat"><div class="stat-label">Total filings</div><div class="stat-val" id="s-trades">—</div></div>
+    <div class="stat"><div class="stat-label">Data source</div><div class="stat-val" style="font-size:1rem;margin-top:4px"><a href="https://disclosures-clerk.house.gov" target="_blank" style="color:#3fb950;text-decoration:none">house.gov</a></div></div>
   </div>
 
   <div class="controls">
-    <input type="text" id="search" placeholder="Search company or ticker…" oninput="applyFilters()" />
+    <input type="text" id="search" placeholder="Search politician…" oninput="applyFilters()" />
     <select id="type-filter" onchange="applyFilters()">
       <option value="all">All activity</option>
       <option value="buy">Buys only</option>
@@ -79,7 +86,7 @@
 <script>
 let allData = [];
 let filtered = [];
-let sortKey = 'politician_count';
+let sortKey = 'trades';
 let sortDir = -1;
 let page = 0;
 const PAGE_SIZE = 25;
@@ -102,7 +109,7 @@ function applyFilters() {
   const q = document.getElementById('search').value.toLowerCase();
   const type = document.getElementById('type-filter').value;
   filtered = allData.filter(d => {
-    const matchQ = !q || d.name.toLowerCase().includes(q) || (d.ticker && d.ticker.toLowerCase().includes(q));
+    const matchQ = !q || d.name.toLowerCase().includes(q);
     const matchType = type === 'all' ||
       (type === 'buy' && d.buys > 0) ||
       (type === 'sell' && d.sells > 0);
@@ -139,32 +146,31 @@ function render() {
   const start = page * PAGE_SIZE;
   const slice = filtered.slice(start, start + PAGE_SIZE);
 
-  let badge = '';
   let html = `<div class="table-wrap"><table>
     <thead><tr>
       <th>#</th>
-      <th onclick="sortBy('name')">Company</th>
-      <th onclick="sortBy('politician_count')">Politicians ↕</th>
+      <th onclick="sortBy('name')">Politician</th>
+      <th onclick="sortBy('politician_count')">Filings ↕</th>
       <th onclick="sortBy('trades')">Trades ↕</th>
       <th>Activity</th>
-      <th>Who</th>
     </tr></thead><tbody>`;
 
   slice.forEach((d, i) => {
     const rank = start + i + 1;
     const rankClass = rank <= 3 ? 'rank top3' : 'rank';
     const barW = Math.round((d.politician_count / maxPols) * 120);
+    let badge = '';
     if (d.buys > 0 && d.sells > 0) badge = `<span class="badge badge-both">buy + sell</span>`;
     else if (d.buys > 0) badge = `<span class="badge badge-buy">buy</span>`;
-    else badge = `<span class="badge badge-sell">sell</span>`;
-    const pols = d.politicians.slice(0, 3).join(', ') + (d.politicians.length > 3 ? ` +${d.politicians.length - 3} more` : '');
+    else if (d.sells > 0) badge = `<span class="badge badge-sell">sell</span>`;
+    else badge = `<span class="badge" style="background:#161b22;color:#8b949e;border:1px solid #30363d">filing</span>`;
+
     html += `<tr>
       <td><span class="${rankClass}">${rank}</span></td>
-      <td><div class="company-name">${d.name}</div>${d.ticker ? `<div class="ticker">${d.ticker}</div>` : ''}</td>
-      <td><div class="bar-wrap"><span class="pol-count">${d.politician_count}</span><div class="bar" style="width:${barW}px"></div></div></td>
+      <td><div class="company-name">${d.name}</div></td>
+      <td><div class="bar-wrap"><span class="pol-count">${d.trades}</span><div class="bar" style="width:${barW}px"></div></div></td>
       <td>${d.trades}</td>
       <td>${badge}</td>
-      <td><div class="politicians-list" title="${d.politicians.join(', ')}">${pols}</div></td>
     </tr>`;
   });
 
@@ -173,7 +179,7 @@ function render() {
   const total = filtered.length;
   const maxPage = Math.ceil(total / PAGE_SIZE);
   html += `<div class="pagination">
-    <span>Showing ${start+1}–${Math.min(start+PAGE_SIZE, total)} of ${total} companies</span>
+    <span>Showing ${start+1}–${Math.min(start+PAGE_SIZE, total)} of ${total} politicians</span>
     <div style="display:flex;gap:8px">
       <button class="pg-btn" onclick="changePage(-1)" ${page===0?'disabled':''}>← Prev</button>
       <button class="pg-btn" onclick="changePage(1)" ${page>=maxPage-1?'disabled':''}>Next →</button>
